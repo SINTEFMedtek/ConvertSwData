@@ -2,8 +2,8 @@
 Convert SW data
 
 
-
-Ro generate Windows executable run: 
+## Win exe
+To generate Windows executable run: 
 
 python setup.py build
 
