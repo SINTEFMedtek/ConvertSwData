@@ -3,6 +3,6 @@ Convert SW data
 
 
 
-Run
-<< python setup.py build >>
-to generate Windows executable
+Ro generate Windows executable run: \n
+python setup.py build
+
