@@ -4,5 +4,5 @@ Convert SW data
 
 
 Run
-python setup.py build
+<< python setup.py build >>
 to generate Windows executable
