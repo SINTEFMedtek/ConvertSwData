@@ -6,6 +6,7 @@ import logging
 import os
 import re
 from sys import byteorder
+import zlib
 sys_is_little_endian = (byteorder == 'little')
 
 logger = logging.getLogger('Convert data')
@@ -176,8 +177,10 @@ def writeMhdRaw(FolderPathOut, dataset):
    
     return acq_date
 
-def _writeRaw(filePathOut, data):
+def _writeRaw(filePathOut, data, compress=True):
     f = open(filePathOut, 'wb')
+    if compress:
+        data = zlib.compress(data)
     f.write(data)
     f.close()
 
