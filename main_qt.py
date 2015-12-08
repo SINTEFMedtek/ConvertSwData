@@ -1,4 +1,6 @@
 '''
+Open WinPython Command Prompt.exe
+
 cd Scripts\dicom2mhd\
 python setup.py build
 '''
@@ -15,6 +17,7 @@ import sys
 
 from PyQt4 import  QtGui, uic
 import logging
+import traceback
 
 def generateOutFolder(root, folderPathIn, folderPathOut):
     relDir = os.path.relpath(root, folderPathIn)
@@ -100,6 +103,7 @@ class ConvertData(QtGui.QMainWindow, form_class):
         self.cancel=True
         
     def convertFolder(self, folderPathIn, folderPathOut):
+        errors = False
         for root, dirs, files in os.walk(folderPathIn):
             tagData=[]
             for file_i in files:
@@ -122,8 +126,16 @@ class ConvertData(QtGui.QMainWindow, form_class):
                 if dicomData:
                     self.logger.info("Dicom file: " +  os.path.basename(filePath))
                     
-                    tempFolderPathOut = generateOutFolder(rreplace(root,"Dicom","Data",1), folderPathIn, folderPathOut)
-                    writeMhdRaw(tempFolderPathOut, dicomData)
+                    out = rreplace(root,"Dicom","Data",1)
+                    out = rreplace(out,"DICOM","Data",1)
+                    tempFolderPathOut = generateOutFolder(out, folderPathIn, folderPathOut)
+                    try:
+                        acq_date=writeMhdRaw(tempFolderPathOut, dicomData)
+                    except Exception as e:
+                        self.label.setText(str(e))
+                        self.logger.error("File: "+ filePath)
+                        self.logger.error(traceback.format_exc())
+                        errors = True
                     continue
 
                 imData = readImage(filePath)
@@ -131,17 +143,24 @@ class ConvertData(QtGui.QMainWindow, form_class):
                     self.logger.info("Image file: " +  os.path.basename(filePath))
                     tempFolderPathOut = generateOutFolder(root, folderPathIn, folderPathOut)
                     filePathOut = os.path.join(tempFolderPathOut, os.path.basename(filePath))
-
-                    imDataOut = anonymizeImage(imData, pixelsX=range(230, 1530), pixelsY=range(7, 43), color=(190, 192, 194))
-                    saveImage(filePathOut, imDataOut)
+                    try:
+                        imDataOut = anonymizeImage(imData, pixelsX=range(230, 1530), pixelsY=range(7, 43), color=(190, 192, 194))
+                        saveImage(filePathOut, imDataOut)
+                    except Exception as e:
+                        self.label.setText(str(e))
+                        self.logger.error("File: "+ filePath)
+                        self.logger.error(traceback.format_exc())
+                        errors = True
                     continue
             if tagData:
                 tempFolderPathOut = generateOutFolder(root, folderPathIn, folderPathOut)
-                filePathOut = os.path.join(tempFolderPathOut, 'Tags.fcsv')
+                filePathOut = os.path.join(tempFolderPathOut, 'Tags_'+acq_date+'.fcsv')
                 writeFcsv(filePathOut, tagData)
 
         self.label.setText("Finished")
         self.logger.info("Finished")
+        if errors:
+            self.label.setText("Finished with error. Check log!!")
         
         
 app = QtGui.QApplication(sys.argv)

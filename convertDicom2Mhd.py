@@ -1,10 +1,12 @@
 import datetime
 import dicom
 from dicom.filereader import InvalidDicomError
-#import numpy as np
+import numpy as np
 import logging
 import os
 import re
+from sys import byteorder
+sys_is_little_endian = (byteorder == 'little')
 
 logger = logging.getLogger('Convert data')
         
@@ -27,7 +29,8 @@ def writeMhdRaw(FolderPathOut, dataset):
     ImagePositionPatient_key = (0x0020, 0x0032)
     SeriesDescription_key = (0x0008, 0x103e)
     AcqDate_key = (0x8,0x20)
-    
+    AcqTime_key = (0x8, 0x30)
+
     buffer = 'ObjectType = Image'+ os.linesep
 
     numberOfFrames = _rec_traverse_dataset(dataset, look_for_tag=Frames_key)
@@ -60,29 +63,57 @@ def writeMhdRaw(FolderPathOut, dataset):
     buffer += 'DimSize = ' + str(numberOfColumns) + str(" ") + str(numberOfRows) + str(" ") + str(numberOfFrames)+ os.linesep
     buffer += 'AnatomicalOrientation = ???'+ os.linesep
 
-    if dataset.pixel_array.dtype == 'uint8':
+
+    need_byteswap = (dataset.is_little_endian != sys_is_little_endian)
+
+    # Make NumPy format code, e.g. "uint16", "int32" etc
+    # from two pieces of info:
+    #    self.PixelRepresentation -- 0 for unsigned, 1 for signed;
+    #    self.BitsAllocated -- 8, 16, or 32
+    format_str = '%sint%d' % (('u', '')[dataset.PixelRepresentation],
+                              dataset.BitsAllocated)
+    try:
+        numpy_format = np.dtype(format_str)
+    except TypeError:
+        msg = ("Data type not understood by NumPy: "
+               "format='%s', PixelRepresentation=%d, BitsAllocated=%d")
+        raise TypeError(msg % (numpy_format, dataset.PixelRepresentation,
+                        dataset.BitsAllocated))
+
+    # copy from pydicom dataset _pixel_data_numpy
+    # Have correct Numpy format, so create the NumPy array
+    arr = np.fromstring(dataset.PixelData, numpy_format)
+
+    if need_byteswap:
+        arr.byteswap(True)  # True means swap in-place, don't make a new copy
+
+    arr = arr[0:(dataset.NumberOfFrames*dataset.Rows*dataset.Columns)]
+    arr = arr.reshape(dataset.NumberOfFrames, dataset.Rows, dataset.Columns)
+    data = arr
+
+    if data.dtype == 'uint8':
         buffer += 'ElementType = MET_UCHAR'+ os.linesep
-    elif dataset.pixel_array.dtype == 'int16':
+    elif data.dtype == 'int16':
         buffer += 'ElementType = MET_SHORT'+ os.linesep
-    elif dataset.pixel_array.dtype == 'float32':
+    elif data.dtype == 'float32':
         buffer += 'ElementType = MET_FLOAT'+ os.linesep
-    elif dataset.pixel_array.dtype == 'double':
+    elif data.dtype == 'double':
         buffer += 'ElementType = MET_DOUBLE'+ os.linesep
-    elif dataset.pixel_array.dtype == 'int8':
+    elif data.dtype == 'int8':
         buffer += 'ElementType = MET_CHAR'+ os.linesep
-    elif dataset.pixel_array.dtype == 'uint16':
+    elif data.dtype == 'uint16':
         buffer += 'ElementType = MET_USHORT'+ os.linesep
-    elif dataset.pixel_array.dtype == 'int32':
+    elif data.dtype == 'int32':
         buffer += 'ElementType = MET_INT'+ os.linesep
-    elif dataset.pixel_array.dtype == 'uint32':
+    elif data.dtype == 'uint32':
         buffer += 'ElementType = MET_UINT'+ os.linesep
     else:
-        logger.error( "Unsupport element type", dataset.pixel_array.dtype)
+        logger.error( "Unsupport element type", data.dtype)
         return None
 
-    val = _rec_traverse_dataset(dataset, look_for_tag=Modality_key)
-    if val:
-        buffer += 'Modality = '+ str(val)+ os.linesep
+    modality = _rec_traverse_dataset(dataset, look_for_tag=Modality_key)
+    if modality:
+        buffer += 'Modality = '+ str(modality)+ os.linesep
     else:
         logger.info( "Could not find modality, assuming US")
         buffer += 'Modality = ' + 'US'+ os.linesep
@@ -114,31 +145,34 @@ def writeMhdRaw(FolderPathOut, dataset):
         logger.info( "Could not find Offset, assuming [0 0 0]")
         buffer += 'Offset = 0 0 0'+ os.linesep
 
-    SeriesDescription = _rec_traverse_dataset(dataset, look_for_tag=SeriesDescription_key)
-    if SeriesDescription:
-        baseName = str(SeriesDescription).replace(' ', '_')
-    else:
-        acq_date = _rec_traverse_dataset(dataset, look_for_tag=AcqDate_key)
-        if acq_date:
-            baseName = str(acq_date).replace(' ', '_')
-        else:
-            baseName = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-                    
-    baseName = re.sub('[^\w\-_\. ]', '_', baseName)
-    filePathOut = os.path.join(FolderPathOut, baseName + '.mhd')
+        
+    val = _rec_traverse_dataset(dataset, look_for_tag=SeriesDescription_key)
+    if val:
+        modality = val.replace(' ', '_')
+        modality = re.sub('[^\w\-_\. ]', '_', modality)
+        
+    acq_date = _rec_traverse_dataset(dataset, look_for_tag=AcqDate_key)
+    acq_date = str(acq_date).replace(' ', '_')
+    acq_date = re.sub('[^\w\-_\. ]', '_', acq_date)
+    baseName = acq_date
+    
+    baseName = baseName+"_"+ str(modality)
+
+    filePathOut = os.path.join(FolderPathOut, baseName +"_"+str(1)+ '.mhd')
     k=1
     while os.path.exists(filePathOut):
         k = k+1
-        filePathOut = os.path.join(FolderPathOut, baseName+"_"+str(k) + '.mhd')
-
+        filePathOut = os.path.join(FolderPathOut, baseName+ "_"+str(k) + '.mhd')
  
     buffer += 'ElementDataFile = ' + os.path.basename(filePathOut).replace('.mhd', '.raw')
    
     mhd_file = open(filePathOut, 'w')
     mhd_file.write(buffer)
     mhd_file.close()
-       
-    _writeRaw(filePathOut.replace('.mhd', '.raw'), dataset.pixel_array)
+
+    _writeRaw(filePathOut.replace('.mhd', '.raw'), data)
+   
+    return acq_date
 
 def _writeRaw(filePathOut, data):
     f = open(filePathOut, 'wb')
