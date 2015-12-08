@@ -87,7 +87,9 @@ def writeMhdRaw(FolderPathOut, dataset):
     if need_byteswap:
         arr.byteswap(True)  # True means swap in-place, don't make a new copy
 
-    arr = arr[0:(dataset.NumberOfFrames*dataset.Rows*dataset.Columns)]
+    if len(arr) ~= dataset.NumberOfFrames*dataset.Rows*dataset.Columns:
+        logger.error("Wrong number of elements in dataset")
+        arr = arr[0:(dataset.NumberOfFrames*dataset.Rows*dataset.Columns)]
     arr = arr.reshape(dataset.NumberOfFrames, dataset.Rows, dataset.Columns)
     data = arr
 
