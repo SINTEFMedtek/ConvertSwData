@@ -30,7 +30,20 @@ def writeMhdRaw(FolderPathOut, dataset):
     ImagePositionPatient_key = (0x0020, 0x0032)
     SeriesDescription_key = (0x0008, 0x103e)
     AcqDate_key = (0x8,0x20)
-    AcqTime_key = (0x8, 0x30)
+
+    modality = _rec_traverse_dataset(dataset, look_for_tag=Modality_key)
+    
+    baseName = str(modality)
+
+    filePathOut = os.path.join(FolderPathOut, baseName +"_"+str(1)+ '.mhd')
+    k=1
+    while os.path.exists(filePathOut):
+        k = k+1
+        filePathOut = os.path.join(FolderPathOut, baseName+ "_"+str(k) + '.mhd')
+
+    data = _get_data(dataset)
+    data_size = _writeRaw(filePathOut.replace('.mhd', '.zraw'), data,compress=True)
+
 
     buffer = 'ObjectType = Image'+ os.linesep
 
@@ -50,7 +63,8 @@ def writeMhdRaw(FolderPathOut, dataset):
 
     buffer += 'BinaryData = True' + os.linesep
     buffer += 'BinaryDataByteOrderMSB = False' + os.linesep
-    buffer += 'CompressedData = False' + os.linesep
+    buffer += 'CompressedData = True' + os.linesep
+    buffer += 'CompressedDataSize = '+str(data_size) + os.linesep
     buffer += 'CenterOfRotation = 0 0 0' + os.linesep
 
     val1 = _rec_traverse_dataset(dataset, look_for_tag=ElementSpacing_key)
@@ -65,34 +79,6 @@ def writeMhdRaw(FolderPathOut, dataset):
     buffer += 'AnatomicalOrientation = ???'+ os.linesep
 
 
-    need_byteswap = (dataset.is_little_endian != sys_is_little_endian)
-
-    # Make NumPy format code, e.g. "uint16", "int32" etc
-    # from two pieces of info:
-    #    self.PixelRepresentation -- 0 for unsigned, 1 for signed;
-    #    self.BitsAllocated -- 8, 16, or 32
-    format_str = '%sint%d' % (('u', '')[dataset.PixelRepresentation],
-                              dataset.BitsAllocated)
-    try:
-        numpy_format = np.dtype(format_str)
-    except TypeError:
-        msg = ("Data type not understood by NumPy: "
-               "format='%s', PixelRepresentation=%d, BitsAllocated=%d")
-        raise TypeError(msg % (numpy_format, dataset.PixelRepresentation,
-                        dataset.BitsAllocated))
-
-    # copy from pydicom dataset _pixel_data_numpy
-    # Have correct Numpy format, so create the NumPy array
-    arr = np.fromstring(dataset.PixelData, numpy_format)
-
-    if need_byteswap:
-        arr.byteswap(True)  # True means swap in-place, don't make a new copy
-
-    if len(arr) ~= dataset.NumberOfFrames*dataset.Rows*dataset.Columns:
-        logger.error("Wrong number of elements in dataset")
-        arr = arr[0:(dataset.NumberOfFrames*dataset.Rows*dataset.Columns)]
-    arr = arr.reshape(dataset.NumberOfFrames, dataset.Rows, dataset.Columns)
-    data = arr
 
     if data.dtype == 'uint8':
         buffer += 'ElementType = MET_UCHAR'+ os.linesep
@@ -114,7 +100,6 @@ def writeMhdRaw(FolderPathOut, dataset):
         logger.error( "Unsupport element type", data.dtype)
         return None
 
-    modality = _rec_traverse_dataset(dataset, look_for_tag=Modality_key)
     if modality:
         buffer += 'Modality = '+ str(modality)+ os.linesep
     else:
@@ -154,28 +139,13 @@ def writeMhdRaw(FolderPathOut, dataset):
         modality = val.replace(' ', '_')
         modality = re.sub('[^\w\-_\. ]', '_', modality)
         
-    acq_date = _rec_traverse_dataset(dataset, look_for_tag=AcqDate_key)
-    acq_date = str(acq_date).replace(' ', '_')
-    acq_date = re.sub('[^\w\-_\. ]', '_', acq_date)
-    baseName = acq_date
-    
-    baseName = baseName+"_"+ str(modality)
-
-    filePathOut = os.path.join(FolderPathOut, baseName +"_"+str(1)+ '.mhd')
-    k=1
-    while os.path.exists(filePathOut):
-        k = k+1
-        filePathOut = os.path.join(FolderPathOut, baseName+ "_"+str(k) + '.mhd')
  
-    buffer += 'ElementDataFile = ' + os.path.basename(filePathOut).replace('.mhd', '.raw')
+    buffer += 'ElementDataFile = ' + os.path.basename(filePathOut).replace('.mhd', '.zraw')
    
     mhd_file = open(filePathOut, 'w')
     mhd_file.write(buffer)
     mhd_file.close()
 
-    _writeRaw(filePathOut.replace('.mhd', '.raw'), data)
-   
-    return acq_date
 
 def _writeRaw(filePathOut, data, compress=True):
     f = open(filePathOut, 'wb')
@@ -183,6 +153,7 @@ def _writeRaw(filePathOut, data, compress=True):
         data = zlib.compress(data)
     f.write(data)
     f.close()
+    return len(data)
 
 def _rec_traverse_dataset(ds, look_for_tag=None):
     ''' Recursively traverse a Dataset and look for tag. '''
@@ -209,3 +180,34 @@ def cross(a, b):
          a[0]*b[1] - a[1]*b[0]]
 
     return c
+    
+def _get_data(dataset):
+    # copied from pydicom dataset _pixel_data_numpy
+    need_byteswap = (dataset.is_little_endian != sys_is_little_endian)
+
+    # Make NumPy format code, e.g. "uint16", "int32" etc
+    # from two pieces of info:
+    #    self.PixelRepresentation -- 0 for unsigned, 1 for signed;
+    #    self.BitsAllocated -- 8, 16, or 32
+    format_str = '%sint%d' % (('u', '')[dataset.PixelRepresentation],
+                              dataset.BitsAllocated)
+    try:
+        numpy_format = np.dtype(format_str)
+    except TypeError:
+        msg = ("Data type not understood by NumPy: "
+               "format='%s', PixelRepresentation=%d, BitsAllocated=%d")
+        raise TypeError(msg % (numpy_format, dataset.PixelRepresentation,
+                        dataset.BitsAllocated))
+
+
+    # Have correct Numpy format, so create the NumPy array
+    arr = np.fromstring(dataset.PixelData, numpy_format)
+
+    if need_byteswap:
+        arr.byteswap(True)  # True means swap in-place, don't make a new copy
+
+    if not len(arr) == dataset.NumberOfFrames*dataset.Rows*dataset.Columns:
+        logger.error("Wrong number of elements in dataset")
+        arr = arr[0:(dataset.NumberOfFrames*dataset.Rows*dataset.Columns)]
+    arr = arr.reshape(dataset.NumberOfFrames, dataset.Rows, dataset.Columns)
+    return arr

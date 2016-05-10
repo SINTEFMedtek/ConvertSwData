@@ -130,7 +130,7 @@ class ConvertData(QtGui.QMainWindow, form_class):
                     out = rreplace(out,"DICOM","Data",1)
                     tempFolderPathOut = generateOutFolder(out, folderPathIn, folderPathOut)
                     try:
-                        acq_date=writeMhdRaw(tempFolderPathOut, dicomData)
+                        writeMhdRaw(tempFolderPathOut, dicomData)
                     except Exception as e:
                         self.label.setText(str(e))
                         self.logger.error("File: "+ filePath)
@@ -154,7 +154,11 @@ class ConvertData(QtGui.QMainWindow, form_class):
                     continue
             if tagData:
                 tempFolderPathOut = generateOutFolder(root, folderPathIn, folderPathOut)
-                filePathOut = os.path.join(tempFolderPathOut, 'Tags_'+acq_date+'.fcsv')
+                filePathOut = os.path.join(tempFolderPathOut, 'Tags_'+str(1)+'.fcsv')
+                k=1
+                while os.path.exists(filePathOut):
+                    k = k+1
+                    filePathOut = os.path.join(tempFolderPathOut, 'Tags_'+str(k)+'.fcsv')
                 writeFcsv(filePathOut, tagData)
 
         self.label.setText("Finished")

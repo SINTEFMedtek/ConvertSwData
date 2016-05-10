@@ -54,7 +54,6 @@ def _convertFolder(folderPathIn):
                     print str(e)
                     print "File: "+ filePath
   
-print "----------------------------------------"
 if __name__ == '__main__':
     
     print sys.argv
